@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SOH Scan & Count</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+/*
+VOICE: practical warehouse tool, calm and fast, one-handed on a phone
+IDEA: a stock count sheet clipped to a board, with a floor-tape yellow scan bay
+PICTURE: the scan bay itself: live viewfinder or photo with corner brackets, beside the photo-led count list
+COLOUR and TYPE: white, ink #101418, safety yellow #ffd84a for scan actions only, slate; Manrope
+LAYOUT: title, scan bay, results table with thumbnails, sticky export bar
+*/
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#101418);--ink:light-dark(#101418,#eef1f4);--mute:light-dark(#5b6670,#9aa6b1);--line:light-dark(#e3e7eb,#262d34);--card:light-dark(#f5f7f9,#171d23);--y:#ffd84a;--yi:#1d1a05;--bad:light-dark(#b42318,#ff8a80);--ok:light-dark(#0f7a43,#6fdc9c)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Manrope,system-ui,sans-serif;overflow-x:clip}
+.band{padding:clamp(20px,3.5vw,48px) max(5vw,16px)}
+.wrap{max-width:1240px;margin:0 auto}
+h1{font-size:clamp(28px,4vw,40px);line-height:1.05;margin:0 0 6px;text-wrap:balance;font-weight:800}
+.sub{color:var(--mute);margin:0;max-width:62ch}
+.grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:24px;margin-top:22px}
+@media(max-width:900px){.grid{grid-template-columns:minmax(0,1fr)}}
+.bay{background:var(--card);border-radius:14px;padding:16px;align-self:start}
+.frame{position:relative;aspect-ratio:4/3;border-radius:10px;background:light-dark(#e9edf0,#0b0f13);display:grid;place-items:center;overflow:hidden}
+.frame img,.frame video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.frame video{object-fit:cover}
+.frame .c{position:absolute;width:34px;height:34px;border:4px solid var(--y);z-index:2}
+.c.tl{top:12px;left:12px;border-right:0;border-bottom:0}.c.tr{top:12px;right:12px;border-left:0;border-bottom:0}
+.c.bl{bottom:12px;left:12px;border-right:0;border-top:0}.c.br{bottom:12px;right:12px;border-left:0;border-top:0}
+.hint{color:var(--mute);text-align:center;padding:24px;font-size:15px;z-index:1}
+.scanline{position:absolute;left:8%;right:8%;height:3px;background:var(--y);box-shadow:0 0 18px var(--y);top:10%;display:none;z-index:3}
+.busy .scanline{display:block;animation:sweep 1.6s ease-in-out infinite alternate}
+@keyframes sweep{to{top:88%}}
+.flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:4}
+.flash.go{animation:fl .35s ease-out}@keyframes fl{from{opacity:.8}to{opacity:0}}
+.live-tag{position:absolute;top:14px;left:56px;z-index:3;background:#d92d20;color:#fff;font-size:12px;font-weight:700;padding:2px 8px;border-radius:99px;display:none}
+.live .live-tag{display:block}
+.auto-tag{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:3;background:rgba(16,20,24,.75);color:#fff;font-size:13px;padding:4px 12px;border-radius:99px;display:none;white-space:nowrap}
+.auto .auto-tag{display:block}
+@media(prefers-reduced-motion:reduce){.busy .scanline{animation:none;top:50%}.flash.go{animation:none}}
+.row{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+button,.btn{font:600 16px Manrope,system-ui,sans-serif;min-height:44px;padding:0 16px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;gap:8px;position:relative}
+button:focus-visible,.btn:focus-within,input:focus-visible,textarea:focus-visible{outline:3px solid #3b82f6;outline-offset:2px}
+.primary{background:var(--y);color:var(--yi);border-color:var(--y)}
+button:disabled{opacity:.5;cursor:default}
+.btn input{position:absolute;width:1px;height:1px;opacity:0}
+.big{flex:1;justify-content:center;min-height:52px;font-size:17px}
+.thumbs{display:flex;gap:8px;overflow-x:auto;margin-top:12px}
+.thumbs button{padding:0;width:60px;height:60px;flex:none;overflow:hidden}
+.thumbs img{width:100%;height:100%;object-fit:cover}
+.thumbs .on{outline:3px solid var(--y)}
+.thumbs span{position:absolute;bottom:2px;right:4px;font-size:12px;background:var(--bg);border-radius:4px;padding:0 4px}
+.status{margin-top:10px;font-size:15px;color:var(--mute);min-height:1.5em}
+.status.err{color:var(--bad)}
+details{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
+summary{cursor:pointer;font-weight:600;min-height:32px}
+.fld{width:100%;font:16px Manrope,sans-serif;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);margin-top:6px}
+textarea.fld{min-height:110px;font:15px/1.4 ui-monospace,Menlo,monospace}
+label.ck{display:flex;gap:8px;align-items:center;font-size:15px;margin-top:8px}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-top:6px}
+.seg label{flex:1;text-align:center;padding:10px 6px;font-size:14px;cursor:pointer}
+.seg input{position:absolute;opacity:0}
+.seg label:has(input:checked){background:var(--ink);color:var(--bg);font-weight:700}
+.stats{display:flex;gap:22px;flex-wrap:wrap;margin-bottom:10px}
+.stats b{display:block;font-size:28px;line-height:1.1}
+.stats small{color:var(--mute);font-size:13px}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+th{font-size:13px;color:var(--mute);font-weight:600;background:var(--card)}
+td input{width:100%;font:16px Manrope,system-ui,sans-serif;border:1px solid transparent;background:transparent;color:var(--ink);padding:6px;border-radius:6px}
+td input:hover{border-color:var(--line)}
+td.n input{text-align:right;font-variant-numeric:tabular-nums}
+.pic{width:56px;height:56px;border-radius:8px;object-fit:cover;display:block;background:var(--card);cursor:zoom-in;border:1px solid var(--line)}
+.nopic{width:56px;height:56px;border-radius:8px;background:var(--card);border:1px dashed var(--line)}
+.flag{font-size:12px;font-weight:700;padding:2px 8px;border-radius:99px;white-space:nowrap}
+.f-ok{background:light-dark(#e3f5ea,#123323);color:var(--ok)}
+.f-chk{background:light-dark(#fff3c4,#3a3205);color:light-dark(#7a5a00,#ffd84a)}
+.f-new{background:light-dark(#fde7e5,#3a1512);color:var(--bad)}
+.del{min-height:36px;padding:0 10px;border:0;background:transparent;color:var(--mute)}
+.empty{padding:30px;text-align:center;color:var(--mute)}
+.export{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--line);padding:12px 0;margin-top:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;z-index:5}
+.export .sp{flex:1}
+.note{font-size:13px;color:var(--mute)}
+#zoom{position:fixed;inset:0;background:rgba(10,12,14,.85);display:none;place-items:center;z-index:20;padding:20px}
+#zoom.on{display:grid}#zoom img{max-width:100%;max-height:80vh;border-radius:10px}
+#zoom p{color:#fff;text-align:center;margin:10px 0 0}
+@media(max-width:600px){table{font-size:13px}.stack thead{display:none}.stack tr{display:grid;padding-block:10px;border-bottom:1px solid var(--line)}.stack td{display:flow-root;border:0;padding:3px 10px;padding-inline-start:8em;text-align:start}.stack td::before{content:attr(data-l);float:inline-start;width:7.5em;margin-inline-start:-8em;color:var(--mute);font-size:13px;padding-top:8px}.stack td:empty{display:none}td.n input{text-align:left}}
+</style>
+<script>new MutationObserver(()=>{for(const c of document.querySelectorAll('.stack td:not([data-l])')){let i=0,p=c;while(p=p.previousElementSibling)i+=p.colSpan;c.dataset.l=c.closest('table').rows[0].cells[i]?.textContent||''}}).observe(document,{childList:true,subtree:true})</script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+</head>
+<body>
+<div class="band"><div class="wrap">
+  <h1>Scan stock, get an on‑hand list</h1>
+  <p class="sub">Point the camera at shelves, bin labels, pallet tags or count sheets. AI vision identifies each item, its description and quantity, crops a photo of it, and builds a list you can export to Excel with pictures.</p>
+
+  <div class="grid">
+    <section class="bay" aria-label="Scan">
+      <div class="frame" id="frame">
+        <span class="c tl"></span><span class="c tr"></span><span class="c bl"></span><span class="c br"></span>
+        <span class="live-tag">LIVE</span>
+        <div class="hint" id="hint">Start the live camera, or take a photo.</div>
+        <video id="video" playsinline muted hidden></video>
+        <img id="preview" alt="" hidden>
+        <div class="scanline"></div><div class="flash" id="flash"></div>
+        <span class="auto-tag" id="autoTag">Auto‑scan: hold steady on each shelf</span>
+      </div>
+
+      <div class="row" id="liveCtl">
+        <button id="liveBtn" class="primary big">Start live camera</button>
+      </div>
+      <div class="row" id="liveOn" hidden>
+        <button id="snap" class="primary big">Capture</button>
+        <button id="autoBtn">Auto‑scan: off</button>
+        <button id="stopBtn">Stop</button>
+      </div>
+      <div class="row">
+        <label class="btn" id="camLbl">Take photo<input id="cam" type="file" accept="image/*" capture="environment"></label>
+        <label class="btn">Upload images<input id="up" type="file" accept="image/*" multiple></label>
+        <button id="next" class="primary" hidden>Scan next ›</button>
+      </div>
+      <div class="thumbs" id="thumbs"></div>
+      <div class="status" id="status" role="status"></div>
+
+      <details open>
+        <summary>Scan settings</summary>
+        <label class="ck" for="loc">Storage bin / location for this scan</label>
+        <input id="loc" class="fld" placeholder="e.g. A-01-02 (optional, overrides what's read)">
+        <div style="margin-top:12px;font-size:15px">Same item + location seen again:</div>
+        <div class="seg" role="radiogroup">
+          <label><input type="radio" name="dup" value="replace" checked> Replace (re‑scan)</label>
+          <label><input type="radio" name="dup" value="add"> Add (more stock)</label>
+        </div>
+        <p class="note">Use <b>Replace</b> when sweeping through with live auto‑scan, so the same shelf captured twice is not double counted. Use <b>Add</b> when each photo shows different stock of the same item.</p>
+      </details>
+
+      <details>
+        <summary>Item master (optional)</summary>
+        <p class="note">Paste or load a CSV with <b>item code, description[, UoM]</b>, e.g. an SAP material master extract. Scanned codes are matched so descriptions are standardised and unknown codes are flagged.</p>
+        <textarea id="master" class="fld" placeholder="MAT-10021,Chicken Breast Boneless 2kg,PAC&#10;MAT-10022,Whole Chicken Grade A 1.5kg,EA"></textarea>
+        <div class="row"><label class="btn">Load CSV<input id="masterFile" type="file" accept=".csv,.txt"></label><span class="note" id="masterCount"></span></div>
+      </details>
+
+      <details id="apiBox">
+        <summary>AI connection</summary>
+        <p class="note" id="aiMode">Checking…</p>
+        <div id="keyWrap" hidden>
+          <p class="note">Self‑hosted mode: enter an Anthropic API key to enable image reading. The key stays in this browser only. For production, route calls through your own server instead of putting a key on devices.</p>
+          <input id="apiKey" class="fld" type="password" autocomplete="off" placeholder="sk-ant-…">
+        </div>
+      </details>
+    </section>
+
+    <section aria-label="Inventory list">
+      <div class="stats">
+        <div><b id="sLines">0</b><small>Line items</small></div>
+        <div><b id="sQty">0</b><small>Total quantity</small></div>
+        <div><b id="sChk">0</b><small>To check</small></div>
+        <div><b id="sImg">0</b><small>Images read</small></div>
+      </div>
+      <div class="tbl">
+        <table class="stack" id="tbl">
+          <thead><tr><th>Photo</th><th>Item code</th><th>Description</th><th style="text-align:right">Qty</th><th>UoM</th><th>Location</th><th>Batch</th><th>Status</th><th></th></tr></thead>
+          <tbody id="body"></tbody>
+        </table>
+      </div>
+      <div class="export">
+        <button id="add">+ Add row</button>
+        <button id="clear">Clear list</button>
+        <span class="sp"></span>
+        <button id="copy">Copy table</button>
+        <button id="xlsx" class="primary">Download Excel</button>
+      </div>
+      <p class="note">Status: <b>Matched</b> = found in item master · <b>Check</b> = low confidence or quantity estimated · <b>Not in master</b> = code not found. Verify against the physical count before posting.</p>
+    </section>
+  </div>
+</div></div>
+<div id="zoom" role="dialog" aria-label="Item photo"><div><img id="zoomImg" alt=""><p id="zoomTxt"></p></div></div>
+
+<script>
+{
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let images=[],sel=-1,rows=[],master=new Map(),sample=null,downloads=null,imgRead=0,uid=1,busy=false,queue=[];
+let stream=null,autoOn=false,autoTimer=null,prevSig=null,stableSince=0,moved=true,lastShot=0;
+const MODEL='claude-sonnet-5-5';
+
+function persist(){try{localStorage.setItem('soh_rows2',JSON.stringify(rows));localStorage.setItem('soh_master',$('master').value);localStorage.setItem('soh_key',$('apiKey').value)}catch(e){try{localStorage.setItem('soh_rows2',JSON.stringify(rows.map(r=>({...r,img:''}))))}catch(_){}}}
+function restore(){try{rows=JSON.parse(localStorage.getItem('soh_rows2')||'[]');rows.forEach(r=>r.id=uid++);$('master').value=localStorage.getItem('soh_master')||'';$('apiKey').value=localStorage.getItem('soh_key')||''}catch(e){rows=[]}}
+function status(t,err){$('status').textContent=t;$('status').className='status'+(err?' err':'')}
+
+function parseMaster(){
+  master=new Map();
+  for(const line of $('master').value.split(/\r?\n/)){
+    const p=line.split(/[,\t;]/).map(s=>s.trim().replace(/^"|"$/g,''));
+    if(p[0]&&p[1]&&!/^(item|material|code|sku)/i.test(p[0]))master.set(p[0].toUpperCase(),{desc:p[1],uom:p[2]||''});
+  }
+  $('masterCount').textContent=master.size?master.size+' items loaded':'';
+}
+function classify(r){
+  if(master.size){
+    const m=master.get(String(r.code).toUpperCase());
+    if(m){if(!r.descLocked)r.desc=m.desc;if(!r.uom&&m.uom)r.uom=m.uom;r.status=r.conf==='low'?'chk':'ok';return}
+    r.status='new';return
+  }
+  r.status=(r.conf==='low'||!(r.qty>0))?'chk':'ok';
+}
+const FL={ok:['f-ok','Matched'],chk:['f-chk','Check'],new:['f-new','Not in master']};
+const flagOf=r=>(!master.size&&r.status==='ok')?['f-ok','Read']:FL[r.status];
+
+function render(){
+  rows.forEach(classify);
+  $('body').innerHTML=rows.length?rows.map(r=>{const[c,l]=flagOf(r);return `<tr data-id="${r.id}">
+    <td>${r.img?`<img class="pic" src="${r.img}" alt="${esc(r.desc)}" data-z="${r.id}">`:'<div class="nopic"></div>'}</td>
+    <td><input data-k="code" value="${esc(r.code)}" aria-label="Item code"></td>
+    <td><input data-k="desc" value="${esc(r.desc)}" aria-label="Description"></td>
+    <td class="n"><input data-k="qty" inputmode="decimal" value="${esc(r.qty)}" aria-label="Quantity"></td>
+    <td><input data-k="uom" value="${esc(r.uom)}" aria-label="Unit"></td>
+    <td><input data-k="loc" value="${esc(r.loc)}" aria-label="Location"></td>
+    <td><input data-k="batch" value="${esc(r.batch)}" aria-label="Batch"></td>
+    <td><span class="flag ${c}">${l}</span></td>
+    <td><button class="del" data-del="${r.id}" aria-label="Delete row">✕</button></td></tr>`}).join('')
+    :'<tr><td colspan="9" class="empty">Scanned items will appear here with their photos.</td></tr>';
+  $('sLines').textContent=rows.length;
+  $('sQty').textContent=rows.reduce((a,r)=>a+(+r.qty||0),0).toLocaleString();
+  $('sChk').textContent=rows.filter(r=>r.status!=='ok').length;
+  $('sImg').textContent=imgRead;
+  persist();
+}
+$('body').addEventListener('change',e=>{
+  const k=e.target.dataset.k;if(!k)return;
+  const r=rows.find(x=>x.id==e.target.closest('tr').dataset.id);
+  r[k]=k==='qty'?(parseFloat(e.target.value)||0):e.target.value.trim();
+  if(k==='desc')r.descLocked=true;if(k==='qty'||k==='code')r.conf='high';
+  render();
+});
+$('body').addEventListener('click',e=>{
+  const id=e.target.dataset.del;if(id){rows=rows.filter(r=>r.id!=id);render();return}
+  const z=e.target.dataset.z;if(z){const r=rows.find(x=>x.id==z);$('zoomImg').src=r.img;$('zoomTxt').textContent=`${r.code} · ${r.desc} · ${r.qty} ${r.uom}`;$('zoom').classList.add('on')}
+});
+$('zoom').onclick=()=>$('zoom').classList.remove('on');
+
+// ---------- images ----------
+function canvasToBlob(c){return new Promise(r=>c.toBlob(r,'image/jpeg',.85))}
+function fileToCanvas(file){return new Promise((res,rej)=>{const img=new Image();img.onload=()=>{const s=Math.min(1,1800/Math.max(img.width,img.height));const c=document.createElement('canvas');c.width=Math.round(img.width*s);c.height=Math.round(img.height*s);c.getContext('2d').drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(img.src);res(c)};img.onerror=rej;img.src=URL.createObjectURL(file)})}
+async function addCanvas(c){const blob=await canvasToBlob(c);images.push({canvas:c,blob,url:URL.createObjectURL(blob),done:false});return images.length-1}
+function crop(c,box){
+  const t=document.createElement('canvas');t.width=t.height=200;const g=t.getContext('2d');
+  let x0=0,y0=0,x1=1,y1=1;
+  if(Array.isArray(box)&&box.length===4){[x0,y0,x1,y1]=box.map(v=>Math.max(0,Math.min(1,+v||0)));if(x1-x0<.02||y1-y0<.02){x0=0;y0=0;x1=1;y1=1}}
+  const pw=(x1-x0)*.08,ph=(y1-y0)*.08;x0=Math.max(0,x0-pw);y0=Math.max(0,y0-ph);x1=Math.min(1,x1+pw);y1=Math.min(1,y1+ph);
+  const sx=x0*c.width,sy=y0*c.height,sw=(x1-x0)*c.width,sh=(y1-y0)*c.height,s=Math.max(sw,sh);
+  g.fillStyle='#fff';g.fillRect(0,0,200,200);
+  g.drawImage(c,sx+sw/2-s/2,sy+sh/2-s/2,s,s,0,0,200,200);
+  return t.toDataURL('image/jpeg',.78);
+}
+function showPick(i){
+  sel=i;if(!stream){$('preview').src=images[i].url;$('preview').hidden=false;$('hint').hidden=true}
+  $('thumbs').innerHTML=images.map((m,j)=>`<button data-i="${j}" class="${j===i?'on':''}" aria-label="Image ${j+1}"><img src="${m.url}" alt="">${m.done?'<span>✓</span>':m.err?'<span>!</span>':''}</button>`).join('');
+}
+$('thumbs').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;const i=+b.dataset.i;showPick(i);if(!images[i].done&&!busy)enqueue(i)});
+async function addFiles(list){for(const f of list){try{enqueue(await addCanvas(await fileToCanvas(f)))}catch(e){status('Could not open '+f.name,true)}}}
+$('cam').addEventListener('change',e=>{addFiles(e.target.files);e.target.value=''});
+$('up').addEventListener('change',e=>{addFiles(e.target.files);e.target.value=''});
+$('next').onclick=()=>$('cam').click();
+
+// ---------- AI ----------
+const PROMPT=`You are a warehouse stock-count assistant. Read this photo (shelf, bin, pallet, carton, label, or a printed/handwritten count sheet) and list every distinct stock item visible with its on-hand quantity.
+For each item:
+- code: item code / SKU / material number / barcode digits if printed, else "".
+- desc: product description as printed (brand, product, variant, pack size). Never invent; if unreadable describe what it visibly is, e.g. "Blue 5L jerrycan (label unreadable)".
+- qty: on-hand quantity. Prefer a printed/handwritten quantity; else count visible units or cartons. 0 if unknowable.
+- uom: EA, CTN, PAC, KG, etc. if determinable, else "".
+- loc: bin/location label if visible, else "".
+- batch: batch/lot if visible, else "".
+- conf: "high" or "low" (low if blurry, partly hidden, or quantity estimated).
+- box: [x0,y0,x1,y1] bounding box of that item's stock in the image, each 0-1 relative to width/height. For a count sheet, box the row.
+Reply ONLY with JSON: {"items":[{"code":"","desc":"","qty":0,"uom":"","loc":"","batch":"","conf":"high","box":[0,0,1,1]}]}`;
+const parseJSON=t=>{const m=String(t).match(/\{[\s\S]*\}/);return m?JSON.parse(m[0]):{items:[]}};
+const b64=blob=>new Promise(r=>{const f=new FileReader();f.onload=()=>r(String(f.result).split(',')[1]);f.readAsDataURL(blob)});
+async function vision(blob){
+  if(sample){
+    try{const o=await sample.json(PROMPT,{images:[blob],modelTier:'default'});return typeof o==='string'?parseJSON(o):o}
+    catch(e){if(e&&e.code)throw e;const r=await sample(PROMPT,{images:[blob],modelTier:'default'});return parseJSON(r.text)}
+  }
+  const key=$('apiKey').value.trim();
+  if(!key)throw{message:'No AI connection. Open "AI connection" and enter an API key.'};
+  const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body:JSON.stringify({model:MODEL,max_tokens:4000,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:await b64(blob)}},{type:'text',text:PROMPT}]}]})});
+  if(!res.ok)throw{message:'API '+res.status+' '+(await res.text()).slice(0,140)};
+  const j=await res.json();return parseJSON((j.content||[]).map(c=>c.text||'').join(''));
+}
+const keyOf=x=>(x.code||x.desc).toUpperCase()+'|'+String(x.loc).toUpperCase()+'|'+String(x.batch).toUpperCase();
+async function readOne(i){
+  const m=images[i],out=await vision(m.blob),items=(out&&out.items)||[],loc=$('loc').value.trim();
+  const mode=document.querySelector('input[name=dup]:checked').value;
+  for(const it of items){
+    const r={id:uid++,code:String(it.code||'').trim(),desc:String(it.desc||'').trim(),qty:parseFloat(it.qty)||0,uom:String(it.uom||'').trim(),loc:loc||String(it.loc||'').trim(),batch:String(it.batch||'').trim(),conf:it.conf==='low'?'low':'high',src:'Image '+(i+1),img:crop(m.canvas,it.box),time:new Date().toLocaleTimeString()};
+    const ex=rows.find(x=>keyOf(x)===keyOf(r));
+    if(ex&&mode==='add'){ex.qty=(+ex.qty||0)+r.qty;if(r.conf==='low')ex.conf='low';ex.src+=', '+r.src}
+    else if(ex){Object.assign(ex,{...r,id:ex.id,descLocked:ex.descLocked,desc:ex.descLocked?ex.desc:r.desc})}
+    else rows.push(r);
+  }
+  m.done=true;imgRead++;return items.length;
+}
+function enqueue(i){if(!queue.includes(i))queue.push(i);showPick(i);pump()}
+async function pump(){
+  if(busy)return;busy=true;$('frame').classList.add('busy');$('next').hidden=true;
+  while(queue.length){
+    const i=queue.shift();
+    try{status(`Reading image ${i+1}…${queue.length?` (${queue.length} waiting)`:''}`);const n=await readOne(i);render();showPick(i);
+      status(n?`Image ${i+1}: ${n} item line${n>1?'s':''} found.`:`Image ${i+1}: nothing recognised. Try closer and sharper.`,!n)}
+    catch(e){images[i].err=true;showPick(i);const c=e&&e.code;
+      status(c==='rate_limited'?'Too many requests. Wait a moment, then tap the image to retry.':c==='not_granted'?'AI reading was not allowed. Rows can still be added manually.':'Could not read: '+(e&&e.message||'unknown error'),true);
+      if(c==='rate_limited'){queue=[];break}}
+  }
+  busy=false;$('frame').classList.remove('busy');if(!stream&&images.length)$('next').hidden=false;
+}
+
+// ---------- live camera ----------
+$('liveBtn').onclick=async()=>{
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
+    const v=$('video');v.srcObject=stream;v.hidden=false;await v.play();
+    $('preview').hidden=true;$('hint').hidden=true;$('frame').classList.add('live');$('liveCtl').hidden=true;$('liveOn').hidden=false;$('next').hidden=true;
+    status('Live camera on. Tap Capture, or turn on Auto‑scan and sweep along the shelves.');
+  }catch(e){stream=null;$('liveCtl').hidden=true;status('Live camera is blocked in this view (it works when the file is hosted on your own HTTPS site). Use "Take photo" instead: each photo is read automatically, then tap "Scan next".',true)}
+};
+function grab(){const v=$('video'),s=Math.min(1,1800/Math.max(v.videoWidth,v.videoHeight)),c=document.createElement('canvas');c.width=Math.round(v.videoWidth*s);c.height=Math.round(v.videoHeight*s);c.getContext('2d').drawImage(v,0,0,c.width,c.height);return c}
+async function shoot(){if(!stream||!$('video').videoWidth)return;const f=$('flash');f.classList.remove('go');void f.offsetWidth;f.classList.add('go');lastShot=Date.now();enqueue(await addCanvas(grab()))}
+$('snap').onclick=shoot;
+function sig(){const v=$('video'),c=document.createElement('canvas');c.width=32;c.height=24;const g=c.getContext('2d',{willReadFrequently:true});g.drawImage(v,0,0,32,24);const d=g.getImageData(0,0,32,24).data,o=[];for(let i=0;i<d.length;i+=4)o.push((d[i]+d[i+1]+d[i+2])/3);return o}
+function tick(){
+  if(!stream||!$('video').videoWidth)return;
+  const s=sig();if(prevSig){let diff=0;for(let i=0;i<s.length;i++)diff+=Math.abs(s[i]-prevSig[i]);diff/=s.length;
+    const now=Date.now();
+    if(diff>14){moved=true;stableSince=now;$('autoTag').textContent='Moving…'}
+    else if(moved&&now-stableSince>1100&&now-lastShot>2500&&queue.length<3){moved=false;$('autoTag').textContent='Captured. Move to the next shelf';shoot()}
+    else if(moved)$('autoTag').textContent='Hold steady…'}
+  prevSig=s;
+}
+$('autoBtn').onclick=()=>{autoOn=!autoOn;$('autoBtn').textContent='Auto‑scan: '+(autoOn?'on':'off');$('frame').classList.toggle('auto',autoOn);clearInterval(autoTimer);
+  if(autoOn){document.querySelector('input[name=dup][value=replace]').checked=true;moved=true;stableSince=Date.now();autoTimer=setInterval(tick,300)}};
+$('stopBtn').onclick=()=>{clearInterval(autoTimer);autoOn=false;$('autoBtn').textContent='Auto‑scan: off';$('frame').classList.remove('auto','live');
+  stream&&stream.getTracks().forEach(t=>t.stop());stream=null;$('video').hidden=true;$('liveOn').hidden=true;$('liveCtl').hidden=false;
+  if(sel>=0)showPick(sel);else $('hint').hidden=false};
+
+// ---------- list actions ----------
+$('add').onclick=()=>{rows.push({id:uid++,code:'',desc:'',qty:0,uom:'',loc:$('loc').value.trim(),batch:'',conf:'high',src:'Manual',img:''});render();const ins=$('body').querySelectorAll('tr:last-child input');ins[0]&&ins[0].focus()};
+let clearArm=false;
+$('clear').onclick=e=>{const b=e.currentTarget;if(!clearArm){clearArm=true;b.textContent='Tap again to clear';setTimeout(()=>{clearArm=false;b.textContent='Clear list'},3000);return}rows=[];imgRead=0;clearArm=false;b.textContent='Clear list';render()};
+const COLS=['Item Code','Description','Qty','UoM','Location','Batch','Status','Source','Scanned'];
+const asRow=r=>[r.code,r.desc,+r.qty||0,r.uom,r.loc,r.batch,flagOf(r)[1],r.src||'',r.time||''];
+$('copy').onclick=async()=>{try{await navigator.clipboard.writeText([COLS,...rows.map(asRow)].map(a=>a.join('\t')).join('\n'));status('Copied. Paste straight into Excel.')}catch(e){status('Copy was blocked by this browser.',true)}};
+
+$('xlsx').onclick=async()=>{
+  if(!rows.length){status('Nothing to export yet.',true);return}
+  if(!window.ExcelJS){status('Excel library did not load. Use Copy table instead.',true);return}
+  status('Building Excel file…');
+  const now=new Date(),wb=new ExcelJS.Workbook();wb.creator='SOH Scan & Count';
+  const ws=wb.addWorksheet('Count Detail',{views:[{state:'frozen',ySplit:4}]});
+  ws.getCell('A1').value='Stock on Hand – Scan Count';ws.getCell('A1').font={bold:true,size:16};
+  ws.getCell('A2').value='Generated: '+now.toLocaleString()+'   Location: '+($('loc').value.trim()||'All');
+  ws.columns=[{width:14},{width:16},{width:44},{width:9},{width:8},{width:14},{width:14},{width:14},{width:16},{width:12}];
+  const hdr=ws.getRow(4);hdr.values=['Photo',...COLS];hdr.font={bold:true};hdr.eachCell(c=>{c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFFD84A'}};c.border={bottom:{style:'thin'}}});
+  rows.forEach((r,i)=>{
+    const rr=ws.getRow(5+i);rr.values=['',...asRow(r)];rr.height=80;rr.alignment={vertical:'middle',wrapText:true};
+    if(r.img){const id=wb.addImage({base64:r.img,extension:'jpeg'});ws.addImage(id,{tl:{col:0.1,row:4+i+0.08},ext:{width:96,height:96},editAs:'oneCell'})}
+  });
+  const tr=ws.getRow(5+rows.length+1);tr.values=['','','Total',rows.reduce((a,r)=>a+(+r.qty||0),0)];tr.font={bold:true};
+  ws.autoFilter={from:{row:4,column:2},to:{row:4+rows.length,column:10}};
+  const sum={};rows.forEach(r=>{const k=(r.code||r.desc).toUpperCase();sum[k]=sum[k]||{code:r.code,desc:r.desc,uom:r.uom,qty:0,locs:new Set(),img:r.img};sum[k].qty+=+r.qty||0;r.loc&&sum[k].locs.add(r.loc);if(!sum[k].img)sum[k].img=r.img});
+  const ws2=wb.addWorksheet('SOH by Item');ws2.columns=[{width:14},{width:16},{width:44},{width:8},{width:12},{width:30}];
+  const h2=ws2.getRow(1);h2.values=['Photo','Item Code','Description','UoM','Total Qty','Locations'];h2.font={bold:true};h2.eachCell(c=>c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFFFD84A'}});
+  Object.values(sum).forEach((s,i)=>{const rr=ws2.getRow(2+i);rr.values=['',s.code,s.desc,s.uom,s.qty,[...s.locs].join(', ')];rr.height=80;rr.alignment={vertical:'middle',wrapText:true};
+    if(s.img){const id=wb.addImage({base64:s.img,extension:'jpeg'});ws2.addImage(id,{tl:{col:0.1,row:1+i+0.08},ext:{width:96,height:96},editAs:'oneCell'})}});
+  const buf=await wb.xlsx.writeBuffer(),name=`SOH_Count_${now.toISOString().slice(0,10)}.xlsx`,blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  if(downloads){try{await downloads.save({filename:name,data:blob});status('Excel file saved: '+name)}catch(e){status(e&&e.code==='declined'?'Download cancelled.':'Download failed: '+(e&&e.message||e&&e.code||'unknown'),true)}return}
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();status('Excel file downloaded: '+name);
+};
+
+$('master').addEventListener('input',()=>{parseMaster();render()});
+$('masterFile').addEventListener('change',async e=>{const f=e.target.files[0];if(f){$('master').value=await f.text();parseMaster();render()}e.target.value=''});
+$('apiKey').addEventListener('change',persist);
+
+restore();parseMaster();render();
+if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)$('liveCtl').hidden=true;
+function selfHosted(){$('aiMode').textContent='Running outside Claude.';$('keyWrap').hidden=false;if(!$('apiKey').value)$('apiBox').open=true}
+if(window.claude&&claude.use){
+  claude.use('sample').then(async s=>{let ok=false;try{ok=s&&(await s.limits()).images}catch(e){}
+    if(ok){sample=s;$('aiMode').textContent='Connected through Claude. No key needed.'}else selfHosted()});
+  claude.use('downloads').then(d=>{downloads=d});
+}else selfHosted();
+}
+</script>
+</body>
+</html>
